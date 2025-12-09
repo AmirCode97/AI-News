@@ -1,7 +1,9 @@
 import os
+import time
 import requests
 import feedparser
 from google import genai
+
 
 # ---------- تنظیمات عمومی ----------
 
@@ -53,21 +55,25 @@ def is_relevant(text: str) -> bool:
 
 
 def ai_process(title_en: str, summary_en: str, url: str) -> str | None:
-    """خلاصه/تحلیل فارسی با Gemini؛ اگر در دسترس نبود None برمی‌گرداند."""
+    """ترجمه و بازنویسی خبر به فارسی؛ فقط متن فارسی برمی‌گرداند."""
     if not client:
         return None
 
     full_text = f"Title: {title_en}\n\nSummary: {summary_en}\n\nLink: {url}"
 
     prompt = f"""
-تو یک ویراستار و تحلیل‌گر خبری فارسی‌زبان هستی.
-این خبر سیاسی دربارهٔ جمهوری اسلامی ایران، نیروهای نیابتی‌اش یا موضوعات مرتبط مثل حجاب، اسرائیل و غزه است.
+متن زیر یک خبر سیاسی به زبان انگلیسی است.
 
-۱. یک خلاصهٔ دقیق و کوتاه (حداکثر ۳–۴ جمله) به زبان فارسی بنویس.
-۲. اگر نقش سپاه پاسداران، نیروی قدس، حزب‌الله لبنان، حوثی‌های یمن، حشد الشعبی عراق یا دیگر گروه‌های نیابتی مطرح است، در متن روشن توضیح بده.
-۳. اگر خبر به اسرائیل یا غزه مربوط است، این را هم شفاف بگو.
-۴. لحن خبری، مستند و بدون شعار باشد.
-۵. فقط بر اساس همین متن جمع‌بندی کن، چیزی اضافه نساز.
+لطفاً:
+
+- یک عنوان خبری کوتاه و روان به فارسی بنویس (در یک جمله).
+- سپس در ۳ تا ۵ جمله، متن خبر را به فارسی ترجمه و بازنویسی کن.
+- از هیچ جملهٔ انگلیسی استفاده نکن.
+- لحن کاملاً خبری و روشن باشد، نه شعاری.
+- چیزی خارج از متن اصلی اضافه نکن.
+
+خروجی نهایی تو باید فقط فارسی باشد؛
+خط اول عنوان، بقیه خطوط متن خبر.
 
 متن خبر:
 {full_text}
@@ -77,48 +83,47 @@ def ai_process(title_en: str, summary_en: str, url: str) -> str | None:
         resp = client.models.generate_content(
             model=GEMINI_MODEL,
             contents=prompt,
-        )
+        )  # مطابق داک رسمی Gemini API. [web:60][web:70]
         text = (resp.text or "").strip()
         if not text:
             return None
-        return text[:1200]  # برای احتیاط در محدودیت تلگرام
+        return text[:1500]
     except Exception as e:
         print("AI error:", e)
         return None
 
 
 def build_message_from_entry(entry) -> str | None:
-    """از یک entry فید، پیام نهایی تلگرام را می‌سازد."""
-    title = getattr(entry, "title", "").strip()
-    summary = getattr(entry, "summary", "") or ""
+    """از یک entry فید، پیام نهایی تلگرام را می‌سازد (فقط فارسی)."""
+    title_en = getattr(entry, "title", "").strip()
+    summary_en = getattr(entry, "summary", "") or ""
     link = getattr(entry, "link", "") or ""
 
-    if not title and not summary:
+    if not title_en and not summary_en:
         return None
 
-    content_for_filter = f"{title} {summary}"
-
+    content_for_filter = f"{title_en} {summary_en}"
     if not is_relevant(content_for_filter):
         return None
 
-    ai_text = ai_process(title, summary, link)
+    ai_text = ai_process(title_en, summary_en, link)
 
-    if ai_text:
-        body_fa = ai_text
-    else:
-        body_fa = (
-            "خلاصه‌ٔ خودکار این خبر موقتاً در دسترس نیست.\n\n"
-            "چکیدهٔ انگلیسی:\n"
-            f"{summary[:700]}"
+    if not ai_text:
+        # اگر AI در دسترس نبود، فقط یک توضیح کوتاه فارسی + لینک بفرست
+        body_fa = "ترجمه خودکار این خبر در حال حاضر انجام نشد. برای دیدن متن اصلی روی لینک زیر بزنید."
+        msg = (
+            f"{body_fa}\n\n"
+            f"منبع اصلی: {link}\n\n"
+            f"#Iran #IRGC #Hezbollah #Houthis #Hijab #Israel #Gaza"
         )
+        return msg[:3500]
 
+    # ai_text خودش شامل عنوان و متن فارسی است، همان را استفاده می‌کنیم
     msg = (
-        f"{title}\n\n"
-        f"{body_fa}\n\n"
+        f"{ai_text}\n\n"
         f"منبع اصلی: {link}\n\n"
         f"#Iran #IRGC #Hezbollah #Houthis #Hijab #Israel #Gaza"
     )
-
     return msg[:3500]
 
 
