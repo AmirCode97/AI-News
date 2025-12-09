@@ -4,7 +4,6 @@ import requests
 import feedparser
 from google import genai
 
-
 # ---------- تنظیمات عمومی ----------
 
 # فیدهایی که می‌خواهی مانیتور کنی
@@ -43,7 +42,7 @@ GEMINI_MODEL = "gemini-2.5-flash"
 
 client = None
 if GEMINI_API_KEY:
-    client = genai.Client(api_key=GEMINI_API_KEY)
+    client = genai.Client(api_key=GEMINI_API_KEY)  # مطابق داک رسمی Gemini SDK. [web:60]
 
 
 # ---------- توابع کمکی ----------
@@ -83,7 +82,7 @@ def ai_process(title_en: str, summary_en: str, url: str) -> str | None:
         resp = client.models.generate_content(
             model=GEMINI_MODEL,
             contents=prompt,
-        )  # مطابق داک رسمی Gemini API. [web:60][web:70]
+        )  # الگوی استاندارد generate_content روی مدل متنی است. [web:70]
         text = (resp.text or "").strip()
         if not text:
             return None
@@ -118,7 +117,7 @@ def build_message_from_entry(entry) -> str | None:
         )
         return msg[:3500]
 
-    # ai_text خودش شامل عنوان و متن فارسی است، همان را استفاده می‌کنیم
+    # ai_text خودش شامل عنوان و متن فارسی است
     msg = (
         f"{ai_text}\n\n"
         f"منبع اصلی: {link}\n\n"
@@ -136,21 +135,21 @@ def send_telegram(text: str):
         "disable_web_page_preview": False,
     }
     try:
-        r = requests.post(url, data=data, timeout=20)
+        r = requests.post(url, data=data, timeout=20)  # استفادهٔ معمول از sendMessage با HTTP ساده است. [web:160]
         print("Telegram status:", r.status_code, r.text)
     except Exception as e:
         print("Telegram error:", e)
 
 
 def process_rss():
-    """خواندن همهٔ فیدها و ارسال خبرهای مهم و غیرتکراری به تلگرام."""
+    """خواندن همهٔ فیدها و ارسال خبرهای مهم و نسبتاً غیرتکراری به تلگرام."""
     seen_links = set()
     now_ts = time.time()
     max_age_seconds = 30 * 60  # فقط خبرهای 30 دقیقهٔ اخیر
 
     for feed_url in RSS_FEEDS:
         print("Parsing feed:", feed_url)
-        parsed = feedparser.parse(feed_url)
+        parsed = feedparser.parse(feed_url)  # استفاده از feedparser برای خواندن RSS. [web:74][web:78]
         entries = getattr(parsed, "entries", []) or []
 
         for entry in entries[:20]:
@@ -159,10 +158,10 @@ def process_rss():
                 continue
             seen_links.add(link)
 
-            # اگر فید زمان انتشار دارد، خبرهای قدیمی را رد کن
+            # اگر زمان انتشار موجود است، خبرهای قدیمی را رد کن
             published_ts = None
             if hasattr(entry, "published_parsed") and entry.published_parsed:
-                published_ts = time.mktime(entry.published_parsed)
+                published_ts = time.mktime(entry.published_parsed)  # براساس داک feedparser برای published_parsed. [web:168]
 
             if published_ts and (now_ts - published_ts) > max_age_seconds:
                 continue
@@ -170,3 +169,7 @@ def process_rss():
             msg = build_message_from_entry(entry)
             if msg:
                 send_telegram(msg)
+
+
+if __name__ == "__main__":
+    process_rss()
