@@ -143,17 +143,30 @@ def send_telegram(text: str):
 
 
 def process_rss():
-    """خواندن همهٔ فیدها و ارسال خبرهای مهم به تلگرام."""
+    """خواندن همهٔ فیدها و ارسال خبرهای مهم و غیرتکراری به تلگرام."""
+    seen_links = set()
+    now_ts = time.time()
+    max_age_seconds = 30 * 60  # فقط خبرهای 30 دقیقهٔ اخیر
+
     for feed_url in RSS_FEEDS:
         print("Parsing feed:", feed_url)
         parsed = feedparser.parse(feed_url)
         entries = getattr(parsed, "entries", []) or []
 
-        for entry in entries[:10]:
+        for entry in entries[:20]:
+            link = getattr(entry, "link", "") or ""
+            if link in seen_links:
+                continue
+            seen_links.add(link)
+
+            # اگر فید زمان انتشار دارد، خبرهای قدیمی را رد کن
+            published_ts = None
+            if hasattr(entry, "published_parsed") and entry.published_parsed:
+                published_ts = time.mktime(entry.published_parsed)
+
+            if published_ts and (now_ts - published_ts) > max_age_seconds:
+                continue
+
             msg = build_message_from_entry(entry)
             if msg:
                 send_telegram(msg)
-
-
-if __name__ == "__main__":
-    process_rss()
